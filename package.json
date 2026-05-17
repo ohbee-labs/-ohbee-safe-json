@@ -1,5 +1,5 @@
 {
-  "name": "@ohbee/safe-json",
+  "name": "ohbee-safe-json",
   "version": "1.0.0",
   "description": "JSON.stringify for production logs: safe, lightweight, redacted, bounded, and predictable.",
   "keywords": [
@@ -33,17 +33,14 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit",
+    "build": "./node_modules/.bin/tsup",
+    "dev": "./node_modules/.bin/tsup --watch",
+    "test": "./node_modules/.bin/vitest run",
+    "test:watch": "./node_modules/.bin/vitest",
+    "test:coverage": "./node_modules/.bin/vitest run --coverage",
+    "typecheck": "./node_modules/.bin/tsc --noEmit",
+    "lint": "./node_modules/.bin/tsc --noEmit",
     "prepublishOnly": "npm run test && npm run build"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.2",

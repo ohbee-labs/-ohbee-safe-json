@@ -1,13 +1,13 @@
-# @ohbee/safe-json
+# ohbee-safe-json
 
 `JSON.stringify()` is fine for data.
 
 It is not fine for production logs.
 
-`@ohbee/safe-json` safely serializes unknown JavaScript values by redacting secrets, handling circular references, limiting output size, and preserving useful error information.
+`ohbee-safe-json` safely serializes unknown JavaScript values by redacting secrets, handling circular references, limiting output size, and preserving useful error information.
 
 ```ts
-import { safeClone } from "@ohbee/safe-json";
+import { safeClone } from "ohbee-safe-json";
 
 logger.error("Checkout failed", {
   error: safeClone(error),
@@ -33,7 +33,7 @@ logger.error("Checkout failed", {
 ## Install
 
 ```sh
-npm install @ohbee/safe-json
+npm install ohbee-safe-json
 ```
 
 ---
@@ -41,7 +41,7 @@ npm install @ohbee/safe-json
 ## Quick start
 
 ```ts
-import { safeClone, safeStringify, presets, createSafeJson } from "@ohbee/safe-json";
+import { safeClone, safeStringify, presets, createSafeJson } from "ohbee-safe-json";
 
 // clone to a safe plain object (use when your logger stringifies internally)
 logger.info({ payload: safeClone(req.body) });
@@ -124,7 +124,7 @@ type SafeJsonOptions = {
 Composable plain objects:
 
 ```ts
-import { presets } from "@ohbee/safe-json";
+import { presets } from "ohbee-safe-json";
 
 safeClone(value, presets.log);
 safeClone(value, presets.debug);
