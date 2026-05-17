@@ -14,12 +14,10 @@ export function createSafeJson(base: SafeJsonOptions = {}): SafeJsonInstance {
       ...(base.redactByPattern ?? []),
       ...(overrides.redactByPattern ?? []),
     ];
-    return {
-      ...base,
-      ...overrides,
-      redactKeys: mergedKeys.length > 0 ? mergedKeys : undefined,
-      redactByPattern: mergedPatterns.length > 0 ? mergedPatterns : undefined,
-    };
+    const merged: SafeJsonOptions = { ...base, ...overrides };
+    if (mergedKeys.length > 0) merged.redactKeys = mergedKeys;
+    if (mergedPatterns.length > 0) merged.redactByPattern = mergedPatterns;
+    return merged;
   }
 
   return {
