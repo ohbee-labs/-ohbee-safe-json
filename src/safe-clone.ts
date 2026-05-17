@@ -71,11 +71,23 @@ function isRedactedKey(key: string, opts: ResolvedOptions): boolean {
   return false;
 }
 
+function circularRef(
+  opts: ResolvedOptions,
+  seen: WeakMap<object, string>,
+  obj: object
+): string {
+  if (opts.onCircular === "path") {
+    return `[Circular: ${seen.get(obj) ?? "?"}]`;
+  }
+  return "[Circular]";
+}
+
 function serializeError(
   err: Error,
   opts: ResolvedOptions,
-  seen: WeakSet<object>,
-  depth: number
+  seen: WeakMap<object, string>,
+  depth: number,
+  path: string
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {
     name: err.name,
@@ -90,7 +102,7 @@ function serializeError(
   }
 
   if (err.cause !== undefined) {
-    result["cause"] = walk(err.cause, opts, seen, depth + 1);
+    result["cause"] = walk(err.cause, opts, seen, depth + 1, `${path}.cause`);
   }
 
   for (const key of Object.keys(err)) {
@@ -102,7 +114,8 @@ function serializeError(
         (err as unknown as Record<string, unknown>)[key],
         opts,
         seen,
-        depth + 1
+        depth + 1,
+        `${path}.${key}`
       );
     }
   }
@@ -113,8 +126,9 @@ function serializeError(
 function walk(
   value: unknown,
   opts: ResolvedOptions,
-  seen: WeakSet<object>,
-  depth: number
+  seen: WeakMap<object, string>,
+  depth: number,
+  path: string
 ): unknown {
   // primitives
   if (value === null) return null;
@@ -155,18 +169,16 @@ function walk(
   if (value instanceof Date) return value.toISOString();
 
   if (value instanceof Error) {
-    if (seen.has(value)) {
-      return opts.onCircular === "placeholder" ? "[Circular]" : "[Circular]";
-    }
-    seen.add(value);
-    const result = serializeError(value, opts, seen, depth);
+    if (seen.has(value)) return circularRef(opts, seen, value);
+    seen.set(value, path);
+    const result = serializeError(value, opts, seen, depth, path);
     seen.delete(value);
     return result;
   }
 
   if (value instanceof Map) {
-    if (seen.has(value)) return "[Circular]";
-    seen.add(value);
+    if (seen.has(value)) return circularRef(opts, seen, value);
+    seen.set(value, path);
     const obj: Record<string, unknown> = {};
     let keyCount = 0;
     for (const [k, v] of value) {
@@ -174,7 +186,7 @@ function walk(
       const keyStr = String(k);
       obj[keyStr] = isRedactedKey(keyStr, opts)
         ? opts.replacement
-        : walk(v, opts, seen, depth + 1);
+        : walk(v, opts, seen, depth + 1, `${path}.${keyStr}`);
       keyCount++;
     }
     seen.delete(value);
@@ -182,10 +194,10 @@ function walk(
   }
 
   if (value instanceof Set) {
-    if (seen.has(value)) return "[Circular]";
-    seen.add(value);
+    if (seen.has(value)) return circularRef(opts, seen, value);
+    seen.set(value, path);
     const arr = [...value].slice(0, opts.maxArrayLength);
-    const result = arr.map((v) => walk(v, opts, seen, depth + 1));
+    const result = arr.map((v, i) => walk(v, opts, seen, depth + 1, `${path}[${i}]`));
     if (value.size > opts.maxArrayLength) {
       result.push(`[Truncated ${value.size - opts.maxArrayLength} more items]`);
     }
@@ -194,10 +206,10 @@ function walk(
   }
 
   if (Array.isArray(value)) {
-    if (seen.has(value)) return "[Circular]";
-    seen.add(value);
+    if (seen.has(value)) return circularRef(opts, seen, value);
+    seen.set(value, path);
     const slice = value.slice(0, opts.maxArrayLength);
-    const result = slice.map((v) => walk(v, opts, seen, depth + 1));
+    const result = slice.map((v, i) => walk(v, opts, seen, depth + 1, `${path}[${i}]`));
     if (value.length > opts.maxArrayLength) {
       result.push(`[Truncated ${value.length - opts.maxArrayLength} more items]`);
     }
@@ -206,8 +218,8 @@ function walk(
   }
 
   if (isPlainObject(value)) {
-    if (seen.has(value)) return "[Circular]";
-    seen.add(value);
+    if (seen.has(value)) return circularRef(opts, seen, value);
+    seen.set(value, path);
 
     const keys = opts.stable ? sortedKeys(value) : Object.keys(value);
     const result: Record<string, unknown> = {};
@@ -218,7 +230,7 @@ function walk(
       if (isRedactedKey(key, opts)) {
         result[key] = opts.replacement;
       } else {
-        const walked = walk(value[key], opts, seen, depth + 1);
+        const walked = walk(value[key], opts, seen, depth + 1, `${path}.${key}`);
         if (walked !== undefined) {
           result[key] = walked;
         }
@@ -232,8 +244,8 @@ function walk(
 
   // non-plain objects (class instances) — treat as plain, extract own enumerable keys
   if (typeof value === "object") {
-    if (seen.has(value as object)) return "[Circular]";
-    seen.add(value as object);
+    if (seen.has(value as object)) return circularRef(opts, seen, value as object);
+    seen.set(value as object, path);
 
     const keys = opts.stable
       ? Object.keys(value as object).sort()
@@ -250,7 +262,8 @@ function walk(
           (value as Record<string, unknown>)[key],
           opts,
           seen,
-          depth + 1
+          depth + 1,
+          `${path}.${key}`
         );
         if (walked !== undefined) {
           result[key] = walked;
@@ -266,8 +279,11 @@ function walk(
   return value;
 }
 
+export function safeCloneResolved(value: unknown, opts: ResolvedOptions): unknown {
+  const seen = new WeakMap<object, string>();
+  return walk(value, opts, seen, 0, "$");
+}
+
 export function safeClone(value: unknown, options?: SafeJsonOptions): unknown {
-  const opts = resolveOptions(options);
-  const seen = new WeakSet<object>();
-  return walk(value, opts, seen, 0);
+  return safeCloneResolved(value, resolveOptions(options));
 }
