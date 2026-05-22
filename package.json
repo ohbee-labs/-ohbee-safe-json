@@ -1,6 +1,6 @@
 {
   "name": "ohbee-safe-json",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "JSON.stringify for production logs: safe, lightweight, redacted, bounded, and predictable.",
   "keywords": [
     "json",
