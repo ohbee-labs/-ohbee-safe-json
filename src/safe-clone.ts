@@ -38,6 +38,8 @@ const DEFAULTS: ResolvedOptions = {
   onCircular: "placeholder",
 };
 
+const TRUNCATED_KEYS_KEY = "[Truncated]";
+
 export function resolveOptions(options?: SafeJsonOptions): ResolvedOptions {
   if (!options) return DEFAULTS;
 
@@ -66,9 +68,45 @@ function isRedactedKey(key: string, opts: ResolvedOptions): boolean {
   const lower = key.toLowerCase();
   if (opts.redactKeys.includes(lower)) return true;
   for (const pattern of opts.redactByPattern) {
+    pattern.lastIndex = 0;
     if (pattern.test(key)) return true;
   }
   return false;
+}
+
+function setResultValue(
+  result: Record<string, unknown>,
+  key: string,
+  value: unknown
+): void {
+  Object.defineProperty(result, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
+function createResult(): Record<string, unknown> {
+  return {};
+}
+
+function serializeDate(value: Date): string {
+  return Number.isNaN(value.getTime()) ? "[Invalid Date]" : value.toISOString();
+}
+
+function addObjectTruncation(
+  result: Record<string, unknown>,
+  totalKeys: number,
+  includedKeys: number
+): void {
+  if (totalKeys > includedKeys) {
+    setResultValue(
+      result,
+      TRUNCATED_KEYS_KEY,
+      `[Truncated ${totalKeys - includedKeys} more keys]`
+    );
+  }
 }
 
 function circularRef(
@@ -89,33 +127,44 @@ function serializeError(
   depth: number,
   path: string
 ): Record<string, unknown> {
-  const result: Record<string, unknown> = {
-    name: err.name,
-    message: err.message,
-  };
+  const result = createResult();
+
+  setResultValue(result, "name", err.name);
+  setResultValue(result, "message", err.message);
 
   if (opts.includeErrorStack && err.stack) {
-    result["stack"] =
+    setResultValue(
+      result,
+      "stack",
       err.stack.length > opts.maxStringLength
         ? err.stack.slice(0, opts.maxStringLength) + "...[Truncated]"
-        : err.stack;
+        : err.stack
+    );
   }
 
   if (err.cause !== undefined) {
-    result["cause"] = walk(err.cause, opts, seen, depth + 1, `${path}.cause`);
+    setResultValue(
+      result,
+      "cause",
+      walk(err.cause, opts, seen, depth + 1, `${path}.cause`)
+    );
   }
 
   for (const key of Object.keys(err)) {
-    if (key in result) continue;
+    if (Object.prototype.hasOwnProperty.call(result, key)) continue;
     if (isRedactedKey(key, opts)) {
-      result[key] = opts.replacement;
+      setResultValue(result, key, opts.replacement);
     } else {
-      result[key] = walk(
-        (err as unknown as Record<string, unknown>)[key],
-        opts,
-        seen,
-        depth + 1,
-        `${path}.${key}`
+      setResultValue(
+        result,
+        key,
+        walk(
+          (err as unknown as Record<string, unknown>)[key],
+          opts,
+          seen,
+          depth + 1,
+          `${path}.${key}`
+        )
       );
     }
   }
@@ -166,7 +215,7 @@ function walk(
   // objects
   if (depth > opts.maxDepth) return "[MaxDepth]";
 
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return serializeDate(value);
 
   if (value instanceof Error) {
     if (seen.has(value)) return circularRef(opts, seen, value);
@@ -179,16 +228,21 @@ function walk(
   if (value instanceof Map) {
     if (seen.has(value)) return circularRef(opts, seen, value);
     seen.set(value, path);
-    const obj: Record<string, unknown> = {};
+    const obj = createResult();
     let keyCount = 0;
     for (const [k, v] of value) {
       if (keyCount >= opts.maxObjectKeys) break;
       const keyStr = String(k);
-      obj[keyStr] = isRedactedKey(keyStr, opts)
-        ? opts.replacement
-        : walk(v, opts, seen, depth + 1, `${path}.${keyStr}`);
+      setResultValue(
+        obj,
+        keyStr,
+        isRedactedKey(keyStr, opts)
+          ? opts.replacement
+          : walk(v, opts, seen, depth + 1, `${path}.${keyStr}`)
+      );
       keyCount++;
     }
+    addObjectTruncation(obj, value.size, keyCount);
     seen.delete(value);
     return obj;
   }
@@ -222,22 +276,23 @@ function walk(
     seen.set(value, path);
 
     const keys = opts.stable ? sortedKeys(value) : Object.keys(value);
-    const result: Record<string, unknown> = {};
+    const result = createResult();
     let keyCount = 0;
 
     for (const key of keys) {
       if (keyCount >= opts.maxObjectKeys) break;
       if (isRedactedKey(key, opts)) {
-        result[key] = opts.replacement;
+        setResultValue(result, key, opts.replacement);
       } else {
         const walked = walk(value[key], opts, seen, depth + 1, `${path}.${key}`);
         if (walked !== undefined) {
-          result[key] = walked;
+          setResultValue(result, key, walked);
         }
       }
       keyCount++;
     }
 
+    addObjectTruncation(result, keys.length, keyCount);
     seen.delete(value);
     return result;
   }
@@ -250,13 +305,13 @@ function walk(
     const keys = opts.stable
       ? Object.keys(value as object).sort()
       : Object.keys(value as object);
-    const result: Record<string, unknown> = {};
+    const result = createResult();
     let keyCount = 0;
 
     for (const key of keys) {
       if (keyCount >= opts.maxObjectKeys) break;
       if (isRedactedKey(key, opts)) {
-        result[key] = opts.replacement;
+        setResultValue(result, key, opts.replacement);
       } else {
         const walked = walk(
           (value as Record<string, unknown>)[key],
@@ -266,12 +321,13 @@ function walk(
           `${path}.${key}`
         );
         if (walked !== undefined) {
-          result[key] = walked;
+          setResultValue(result, key, walked);
         }
       }
       keyCount++;
     }
 
+    addObjectTruncation(result, keys.length, keyCount);
     seen.delete(value as object);
     return result;
   }

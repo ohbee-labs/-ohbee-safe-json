@@ -75,6 +75,15 @@ describe("redaction", () => {
     expect(result["normalField"]).toBe("ok");
   });
 
+  it("redacts repeated keys with stateful RegExp patterns", () => {
+    const result = safeClone(
+      { secret1: "abc", secret2: "def" },
+      { redactByPattern: [/secret/g] }
+    ) as Record<string, unknown>;
+    expect(result["secret1"]).toBe("[REDACTED]");
+    expect(result["secret2"]).toBe("[REDACTED]");
+  });
+
   it("redact() wrapper works", () => {
     const result = redact({ password: "x", name: "bob" }, { keys: ["name"] }) as Record<string, unknown>;
     expect(result["name"]).toBe("[REDACTED]");

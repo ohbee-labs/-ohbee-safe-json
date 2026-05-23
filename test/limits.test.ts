@@ -55,11 +55,35 @@ describe("string length limit", () => {
 });
 
 describe("object key limit", () => {
-  it("limits number of keys", () => {
+  it("limits number of keys and includes a truncation sentinel", () => {
     const obj: Record<string, number> = {};
     for (let i = 0; i < 20; i++) obj[`key${i}`] = i;
     const result = safeClone(obj, { maxObjectKeys: 5 }) as Record<string, unknown>;
-    expect(Object.keys(result)).toHaveLength(5);
+    expect(Object.keys(result)).toHaveLength(6);
+    expect(result["[Truncated]"]).toBe("[Truncated 15 more keys]");
+  });
+
+  it("adds a truncation sentinel for Maps", () => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < 20; i++) map.set(`key${i}`, i);
+    const result = safeClone(map, { maxObjectKeys: 5 }) as Record<string, unknown>;
+    expect(Object.keys(result)).toHaveLength(6);
+    expect(result["[Truncated]"]).toBe("[Truncated 15 more keys]");
+  });
+
+  it("counts omitted values toward the inspected key limit", () => {
+    const result = safeClone(
+      {
+        omitted: undefined,
+        fn: () => "hidden",
+        kept: "visible",
+        later: "truncated",
+      },
+      { maxObjectKeys: 3 }
+    ) as Record<string, unknown>;
+
+    expect(Object.keys(result)).toEqual(["kept", "[Truncated]"]);
+    expect(result["[Truncated]"]).toBe("[Truncated 1 more keys]");
   });
 });
 
@@ -68,6 +92,10 @@ describe("special type handling", () => {
     const d = new Date("2024-01-01T00:00:00.000Z");
     const result = safeClone(d);
     expect(result).toBe("2024-01-01T00:00:00.000Z");
+  });
+
+  it("serializes invalid Date without throwing", () => {
+    expect(safeClone(new Date("invalid"))).toBe("[Invalid Date]");
   });
 
   it("converts BigInt to string by default", () => {
@@ -112,6 +140,27 @@ describe("special type handling", () => {
     const result = safeClone(map) as Record<string, unknown>;
     expect(result["key"]).toBe("value");
     expect(result["num"]).toBe(42);
+  });
+
+  it("preserves __proto__ as data on plain objects", () => {
+    const input = JSON.parse('{"__proto__":{"polluted":true},"ok":1}') as Record<
+      string,
+      unknown
+    >;
+    const result = safeClone(input) as Record<string, unknown>;
+
+    expect(Object.keys(result)).toEqual(["__proto__", "ok"]);
+    expect(result["__proto__"]).toEqual({ polluted: true });
+    expect((result as Record<string, unknown>)["polluted"]).toBeUndefined();
+  });
+
+  it("preserves __proto__ as data on Maps", () => {
+    const map = new Map<string, unknown>([["__proto__", { polluted: true }]]);
+    const result = safeClone(map) as Record<string, unknown>;
+
+    expect(Object.keys(result)).toEqual(["__proto__"]);
+    expect(result["__proto__"]).toEqual({ polluted: true });
+    expect((result as Record<string, unknown>)["polluted"]).toBeUndefined();
   });
 
   it("converts Set to array", () => {
